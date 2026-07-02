@@ -1,0 +1,25 @@
+# Publish on tag. `git tag vX.Y.Z && git push origin vX.Y.Z` packs the extension
+# tree into one extension.tgz asset and attaches it to a GitHub release; the
+# Frontier registry indexer then scans that exact tarball and pins its sha256
+# into index.json. This is the standard workflow from the registry's
+# PUBLISHING.md — copy it verbatim into your own extension.
+#
+# The tarball is written OUTSIDE the tree being packed (/tmp), or GNU tar exits 1
+# with "file changed as we read it". The excludes keep dev-only files out:
+# .git/.github (repo plumbing) and node_modules/data (never shipped — the host
+# installs deps and owns data).
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tar -czf /tmp/extension.tgz --exclude .git --exclude .github --exclude node_modules --exclude data .
+      - run: gh release create "$GITHUB_REF_NAME" /tmp/extension.tgz --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

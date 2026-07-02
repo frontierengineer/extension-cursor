@@ -1,0 +1,29 @@
+{
+  "displayName": "Cursor",
+  "defaultColor": "#000000",
+  "description": "Worker runtime that drives Cursor's headless CLI agent (`cursor-agent -p`) on a slot and relays its NDJSON event stream as transcript events, so any model Cursor exposes (Anthropic, OpenAI, Gemini, xAI, Composer) runs in Frontier's UI. Operates in place on the slot's existing checkout.",
+  "runtime": {
+    "label": "Cursor",
+    "options": [
+      {
+        "key": "model",
+        "label": "Model",
+        "type": "text",
+        "placeholder": "Cursor default",
+        "description": "Cursor model id for every turn — e.g. claude-4-5-sonnet, claude-opus-4-8, gpt-5, gpt-5-codex, gemini-3-pro, composer-2, grok-4-3. Leave blank to use Cursor's own default. Run `cursor-agent models` on the machine to list what your account can use.",
+        "suggestions": [
+          "claude-4-5-sonnet",
+          "claude-4-5-opus",
+          "claude-opus-4-8",
+          "gpt-5",
+          "gpt-5-codex",
+          "gpt-5-mini",
+          "gemini-3-pro",
+          "gemini-3-flash",
+          "composer-2",
+          "grok-4-3"
+        ]
+      }
+    ]
+  }
+}
