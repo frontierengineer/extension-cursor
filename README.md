@@ -24,7 +24,7 @@ host serves at `/extensions/cursor/runtime.bundle.js`.
   install/login state to the Machines view (`prepare()` + `auth()`), and resumes a
   session across reservations via the `session_id` Cursor prints in its system
   event (`--resume`).
-- Works **in place** on the slot's existing checkout — no `syncDirectory`.
+- Works **in place** on the slot's existing checkout — nothing is staged in or published out.
 
 ## Options it declares
 

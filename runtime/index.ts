@@ -491,9 +491,9 @@ export function register(runtimeProvider: RuntimeProvider): void {
       };
     },
 
-    // No syncDirectory: like claude-code/opencode, the Cursor runtime works in
-    // place on the slot's existing checkout — it runs the CLI with cwd = the slot
-    // directory, so there is nothing to stage in or publish out.
+    // Like claude-code/opencode, the Cursor runtime works in place on the slot's
+    // existing checkout — it runs the CLI with cwd = the slot directory, so there
+    // is nothing to stage in or publish out.
     //
     // No history: the Cursor CLI keeps its own session store, but its on-disk
     // format is not a documented/stable read surface (June 2026), so this runtime
