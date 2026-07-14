@@ -1,5 +1,5 @@
 import type {
-  RuntimeProvider,
+  WorkerProvider,
   RuntimeRunInput,
   RuntimeRunResult,
   TranscriptEvent,
@@ -282,10 +282,10 @@ export function cursorReadiness(): { readiness: 'checking' | 'installing' | 'rea
   return { readiness: 'checking', detail: 'not installed yet' };
 }
 
-export function register(runtimeProvider: RuntimeProvider): void {
-  const runtime = runtimeProvider.version(1);
+export function register(provider: WorkerProvider): void {
+  const w = provider.version(1);
 
-  runtime.register({
+  w.runtime.register({
     label: 'Cursor',
 
     // Eagerly provision the Cursor CLI on this machine the moment it connects, in

@@ -4,8 +4,9 @@ A runtime provider that drives **Cursor's headless CLI agent**, so any model
 Cursor exposes (Anthropic, OpenAI, Gemini, xAI, and Cursor's own Composer models)
 can be used inside Frontier's constant UI — without ever opening the Cursor editor.
 
-Capability: `runtime` only. It runs **on the daemon**, loaded from the bundle the
-host serves at `/extensions/cursor/runtime.bundle.js`.
+Realm: `worker` only (an agent runtime is one of the things a worker bundle
+registers). It runs **on the daemon**, loaded from the bundle the host serves at
+`/extensions/cursor/worker.bundle.js`.
 
 ## What it does
 
@@ -44,7 +45,7 @@ or `export CURSOR_API_KEY=…`. Frontier **injects no credentials**; `auth()` on
 Cursor auto-discovers MCP servers from `.cursor/mcp.json`. Before each turn the
 runtime writes the frontier tool gateway (plus any user-configured servers) into the
 slot's `.cursor/mcp.json` and passes `--approve-mcps` so the agent can call them
-unattended. See the **MCP NOTE** in `runtime/index.ts`: the gateway authenticates by
+unattended. See the **MCP NOTE** in `worker/index.ts`: the gateway authenticates by
 per-turn header, and whether a given Cursor build forwards custom headers on a remote
 MCP server is version-dependent — if it doesn't, those tools simply aren't callable
 that turn (the turn still runs).
@@ -55,7 +56,7 @@ Cursor's CLI `result` event reports duration + success but **not token counts or
 cost** (no usage field in the documented stream-json schema, June 2026). So this
 runtime reports zero usage — the turn streams and completes correctly; only the
 per-turn token/cost meter is blank. If a future CLI build adds usage to the
-result/assistant events, map it in `runtime/index.ts` and the meter lights up with
+result/assistant events, map it in `worker/index.ts` and the meter lights up with
 no other change.
 
 ## Sources
