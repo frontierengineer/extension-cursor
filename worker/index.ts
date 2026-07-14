@@ -309,10 +309,10 @@ export function register(provider: WorkerProvider): void {
       try {
         const ready = cursorReadiness();
         if (ready.readiness !== 'ready') {
-          return { auth: 'unknown' as const, readiness: ready.readiness, detail: ready.detail };
+          return { auth: 'unknown' as const, readiness: ready.readiness, detail: ready.detail ?? null, models: null };
         }
         if (process.env.CURSOR_API_KEY) {
-          return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'CURSOR_API_KEY in environment' };
+          return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'CURSOR_API_KEY in environment', models: null };
         }
         const home = os.homedir();
         const configHome = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
@@ -327,12 +327,12 @@ export function register(provider: WorkerProvider): void {
           path.join(configHome, 'cursor-agent', 'auth.json'),
         ];
         for (const c of candidates) {
-          try { if (fs.existsSync(c) && fs.statSync(c).size > 2) return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'logged in' }; }
+          try { if (fs.existsSync(c) && fs.statSync(c).size > 2) return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'logged in', models: null }; }
           catch { /* keep looking */ }
         }
-        return { auth: 'logged_out' as const, readiness: 'ready' as const, detail: 'run `cursor-agent login` on this machine, or set CURSOR_API_KEY' };
+        return { auth: 'logged_out' as const, readiness: 'ready' as const, detail: 'run `cursor-agent login` on this machine, or set CURSOR_API_KEY', models: null };
       } catch (err: any) {
-        return { auth: 'unknown' as const, detail: err?.message || 'probe failed' };
+        return { auth: 'unknown' as const, readiness: null, detail: err?.message || 'probe failed', models: null };
       }
     },
 
@@ -346,7 +346,7 @@ export function register(provider: WorkerProvider): void {
         const message = `Cursor CLI is not available on this machine and auto-install failed${cursorInstallError ? ` (${cursorInstallError})` : ''} — install it with \`curl ${CURSOR_INSTALL_URL} -fsS | bash\``;
         input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message, recoverable: false, ts: Date.now() });
         input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
-        return { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || undefined, error: message };
+        return { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || null, responseText: null, error: message };
       }
 
       // Write the frontier MCP gateway (+ any user servers) to the slot's
@@ -379,7 +379,7 @@ export function register(provider: WorkerProvider): void {
       // error from the result event. Re-made per attempt (see runAttempt).
       const makeRelay = (): RelayState => ({
         responseText: '',
-        providerSessionId: input.sessionId || undefined,
+        providerSessionId: input.sessionId || null,
         error: null,
         stopReason: 'end_turn',
         textIdByCall: new Map(),
@@ -410,7 +410,7 @@ export function register(provider: WorkerProvider): void {
             stdio: ['ignore', 'pipe', 'pipe'],
             env: {
               ...process.env,
-              ...(input.env || {}),
+              ...(input.environment || {}),
               // Cursor's CLI uses CURSOR_API_KEY for headless auth when present; we
               // never set it ourselves (the user owns credentials), but we forward
               // the turn's env verbatim above so a user-provided key flows through.
@@ -420,7 +420,7 @@ export function register(provider: WorkerProvider): void {
           const message = err?.message ? String(err.message) : String(err);
           input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: failed to launch the CLI: ${message}`, recoverable: false, ts: Date.now() });
           input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
-          return { result: { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || undefined, error: `cursor: failed to launch the CLI: ${message}` } };
+          return { result: { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || null, responseText: null, error: `cursor: failed to launch the CLI: ${message}` } };
         }
 
         // Forward the dispatch's abort to the child so generation actually stops.
@@ -444,9 +444,9 @@ export function register(provider: WorkerProvider): void {
             result: {
               stopReason: cancelled ? 'cancelled' : 'error',
               usage: ZERO_USAGE,
-              providerSessionId: relay.providerSessionId,
-              responseText: relay.responseText || undefined,
-              error: cancelled ? undefined : `cursor: ${message}`,
+              providerSessionId: relay.providerSessionId ?? null,
+              responseText: relay.responseText || null,
+              error: cancelled ? null : `cursor: ${message}`,
             },
           };
         } finally {
@@ -477,7 +477,7 @@ export function register(provider: WorkerProvider): void {
 
       if (input.signal?.aborted) {
         input.emit({ type: 'done', sessionId: sid, stopReason: 'cancelled', usage: ZERO_USAGE });
-        return { stopReason: 'cancelled', usage: ZERO_USAGE, providerSessionId: relay.providerSessionId, responseText: relay.responseText || undefined, error: 'cancelled' };
+        return { stopReason: 'cancelled', usage: ZERO_USAGE, providerSessionId: relay.providerSessionId ?? null, responseText: relay.responseText || null, error: 'cancelled' };
       }
 
       input.emit({ type: 'usage', sessionId: sid, usage: ZERO_USAGE });
@@ -485,9 +485,9 @@ export function register(provider: WorkerProvider): void {
       return {
         stopReason: relay.stopReason,
         usage: ZERO_USAGE,
-        providerSessionId: relay.providerSessionId,
-        responseText: relay.responseText || undefined,
-        error: relay.error || undefined,
+        providerSessionId: relay.providerSessionId ?? null,
+        responseText: relay.responseText || null,
+        error: relay.error || null,
       };
     },
 
@@ -509,7 +509,7 @@ export function register(provider: WorkerProvider): void {
 
 interface RelayState {
   responseText: string;
-  providerSessionId?: string;
+  providerSessionId: string | null;
   error: string | null;
   stopReason: TranscriptStopReason;
   // call_id → the transcript text id we assigned, so a tool's text groups stably.
@@ -620,10 +620,10 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
         if (!text) continue;
         const id = `a-${relay.seq++}`;
         if (kind === 'thinking') {
-          input.emit({ type: 'thinking', sessionId, id, delta: text, partial: false, text, ts: Date.now() });
+          input.emit({ type: 'thinking', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, ts: Date.now() });
         } else {
           relay.responseText = text; // last complete assistant text is the turn's answer
-          input.emit({ type: 'text', sessionId, id, delta: text, partial: false, text, ts: Date.now() });
+          input.emit({ type: 'text', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, ts: Date.now() });
         }
       }
       // Some builds put the message text directly on a `content` string rather than
@@ -631,7 +631,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (!blocks.length && typeof content === 'string' && content) {
         const id = `a-${relay.seq++}`;
         relay.responseText = content;
-        input.emit({ type: 'text', sessionId, id, delta: content, partial: false, text: content, ts: Date.now() });
+        input.emit({ type: 'text', sessionId, id, delta: content, partial: false, text: content, agentId: null, agentLabel: null, ts: Date.now() });
       }
       return;
     }
@@ -648,11 +648,11 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (subtype === 'completed' || tc?.result !== undefined) {
         const result = tc?.result ?? tc?.output ?? '';
         const isError = !!(tc?.is_error || tc?.error);
-        input.emit({ type: 'tool_result', sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, ts: Date.now() });
+        input.emit({ type: 'tool_result', sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, agentId: null, agentLabel: null, ts: Date.now() });
       } else {
         const name: string = String(tc?.name || tc?.tool || ev?.name || 'tool');
         const args = tc?.args ?? tc?.arguments ?? tc?.input ?? {};
-        input.emit({ type: 'tool_call', sessionId, callId, name, input: args, partial: false, ts: Date.now() });
+        input.emit({ type: 'tool_call', sessionId, callId, name, input: args, partial: false, agentId: null, agentLabel: null, ts: Date.now() });
       }
       return;
     }
