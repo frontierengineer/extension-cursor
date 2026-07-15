@@ -25,5 +25,10 @@
         ]
       }
     ]
+  },
+  "realms": {
+    "surface": null,
+    "host": null,
+    "worker": { "runtime": true, "workspaceProviders": [], "components": false }
   }
 }
