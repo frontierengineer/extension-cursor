@@ -1,5 +1,6 @@
 import type {
   WorkerProvider,
+  WorkerDaemonHost,
   RuntimeRunInput,
   RuntimeRunResult,
   TranscriptEvent,
@@ -284,8 +285,16 @@ export function cursorReadiness(): { readiness: 'checking' | 'installing' | 'rea
 
 export function register(provider: WorkerProvider): void {
   const w = provider.version(1);
+  // The worker bundle is a single daemon: its mount receives the flat
+  // WorkerDaemonHost and registers this extension's Cursor runtime.
+  w.daemon.register({ mount });
+}
 
-  w.runtime.register({
+// The Cursor worker daemon. Registers the runtime that drives Cursor's headless
+// CLI for one dispatched turn. Nothing to tear down at unload (the runtime lives
+// with the daemon), so mount returns an empty handle.
+function mount(host: WorkerDaemonHost): { dispose?: () => void } {
+  host.runtime.register({
     label: 'Cursor',
 
     // Eagerly provision the Cursor CLI on this machine the moment it connects, in
@@ -503,6 +512,8 @@ export function register(provider: WorkerProvider): void {
     // session-store format or a `cursor-agent export <id>` command, implement
     // RuntimeHistory here against it.
   });
+
+  return {};
 }
 
 // ── stream-json relay ────────────────────────────────────────────────────────
