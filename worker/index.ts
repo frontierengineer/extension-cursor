@@ -1,6 +1,7 @@
 import type {
   WorkerProvider,
-  WorkerDaemonHost,
+  WorkerRuntimeContext,
+  RuntimeImplementation,
   RuntimeRunInput,
   RuntimeRunResult,
   TranscriptEvent,
@@ -258,7 +259,7 @@ export function ensureCursorBinary(): Promise<string | null> {
 }
 
 // The eager prepare() the daemon fires the moment a machine connects (see
-// RuntimeImpl.prepare): front-run the SAME ensureCursorBinary() the first run()
+// RuntimeImplementation.prepare): front-run the SAME ensureCursorBinary() the first run()
 // would lazily call, so a missing CLI or a broken network is installed/surfaced UP
 // FRONT instead of mid-turn. Single-flight + a no-op when already installed
 // (shares the lazy latch), so firing it never double-installs. Resolves once the
@@ -285,16 +286,18 @@ export function cursorReadiness(): { readiness: 'checking' | 'installing' | 'rea
 
 export function register(provider: WorkerProvider): void {
   const w = provider.version(1);
-  // The worker bundle is a single daemon: its mount receives the flat
-  // WorkerDaemonHost and registers this extension's Cursor runtime.
-  w.daemon.register({ mount });
+  // The worker bundle contributes one component: the Cursor runtime. mount()
+  // builds and returns the implementation the daemon routes dispatched turns to.
+  w.runtime.register({ mount });
 }
 
-// The Cursor worker daemon. Registers the runtime that drives Cursor's headless
-// CLI for one dispatched turn. Nothing to tear down at unload (the runtime lives
-// with the daemon), so mount returns an empty handle.
-function mount(host: WorkerDaemonHost): { dispose?: () => void } {
-  host.runtime.register({
+// The Cursor runtime. mount() returns the implementation that drives Cursor's
+// headless CLI for one dispatched turn. Nothing here reaches for the context's
+// capabilities (the CLI is spawned through the bundle's own child_process
+// import), and there is nothing to tear down at unload, so the implementation
+// carries no dispose.
+function mount(context: WorkerRuntimeContext): RuntimeImplementation {
+  return {
     label: 'Cursor',
 
     // Eagerly provision the Cursor CLI on this machine the moment it connects, in
@@ -511,9 +514,7 @@ function mount(host: WorkerDaemonHost): { dispose?: () => void } {
     // Cursor transcripts as Frontier history is unavailable. If Cursor documents a
     // session-store format or a `cursor-agent export <id>` command, implement
     // RuntimeHistory here against it.
-  });
-
-  return {};
+  };
 }
 
 // ── stream-json relay ────────────────────────────────────────────────────────
