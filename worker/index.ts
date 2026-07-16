@@ -1,7 +1,7 @@
 import type {
   WorkerProvider,
   WorkerRuntimeContext,
-  RuntimeImplementation,
+  WorkerRuntimeImplementation,
   RuntimeRunInput,
   RuntimeRunResult,
   TranscriptEvent,
@@ -259,7 +259,7 @@ export function ensureCursorBinary(): Promise<string | null> {
 }
 
 // The eager prepare() the daemon fires the moment a machine connects (see
-// RuntimeImplementation.prepare): front-run the SAME ensureCursorBinary() the first run()
+// WorkerRuntimeImplementation.prepare): front-run the SAME ensureCursorBinary() the first run()
 // would lazily call, so a missing CLI or a broken network is installed/surfaced UP
 // FRONT instead of mid-turn. Single-flight + a no-op when already installed
 // (shares the lazy latch), so firing it never double-installs. Resolves once the
@@ -296,7 +296,7 @@ export function register(provider: WorkerProvider): void {
 // capabilities (the CLI is spawned through the bundle's own child_process
 // import), and there is nothing to tear down at unload, so the implementation
 // carries no dispose.
-function mount(context: WorkerRuntimeContext): RuntimeImplementation {
+function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
   return {
     label: 'Cursor',
 
@@ -321,10 +321,10 @@ function mount(context: WorkerRuntimeContext): RuntimeImplementation {
       try {
         const ready = cursorReadiness();
         if (ready.readiness !== 'ready') {
-          return { auth: 'unknown' as const, readiness: ready.readiness, detail: ready.detail ?? null, models: null };
+          return { auth: 'unknown' as const, readiness: ready.readiness, detail: ready.detail ?? null, models: [] };
         }
         if (process.env.CURSOR_API_KEY) {
-          return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'CURSOR_API_KEY in environment', models: null };
+          return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'CURSOR_API_KEY in environment', models: [] };
         }
         const home = os.homedir();
         const configHome = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
@@ -339,12 +339,12 @@ function mount(context: WorkerRuntimeContext): RuntimeImplementation {
           path.join(configHome, 'cursor-agent', 'auth.json'),
         ];
         for (const c of candidates) {
-          try { if (fs.existsSync(c) && fs.statSync(c).size > 2) return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'logged in', models: null }; }
+          try { if (fs.existsSync(c) && fs.statSync(c).size > 2) return { auth: 'ok' as const, readiness: 'ready' as const, detail: 'logged in', models: [] }; }
           catch { /* keep looking */ }
         }
-        return { auth: 'logged_out' as const, readiness: 'ready' as const, detail: 'run `cursor-agent login` on this machine, or set CURSOR_API_KEY', models: null };
+        return { auth: 'logged_out' as const, readiness: 'ready' as const, detail: 'run `cursor-agent login` on this machine, or set CURSOR_API_KEY', models: [] };
       } catch (err: any) {
-        return { auth: 'unknown' as const, readiness: null, detail: err?.message || 'probe failed', models: null };
+        return { auth: 'unknown' as const, readiness: null, detail: err?.message || 'probe failed', models: [] };
       }
     },
 

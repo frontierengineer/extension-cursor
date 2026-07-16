@@ -29,6 +29,6 @@
   "realms": {
     "surface": null,
     "host": null,
-    "worker": { "runtime": true, "workspaceProviders": [], "components": false }
+    "worker": { "runtime": true, "workspaces": [], "components": false }
   }
 }
