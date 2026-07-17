@@ -51,7 +51,7 @@ import { spawn, execSync, ChildProcess } from 'child_process';
 //       https://cursor.com/docs/cli/reference/output-format
 //   • Resume: `--resume <session-id>` replays a prior chat; the session id is the
 //     `session_id` printed in the system init event — we persist it as the durable
-//     providerSessionId so the next turn resumes on the SAME machine.
+//     runtimeSessionId so the next turn resumes on the SAME machine.
 //       https://cursor.com/docs/cli/using
 //   • Auth: the user logs in on the machine (`cursor-agent login`) or sets
 //     CURSOR_API_KEY; credentials are the user's own act — Frontier injects none.
@@ -286,9 +286,37 @@ export function cursorReadiness(): { readiness: 'checking' | 'installing' | 'rea
 
 export function register(provider: WorkerProvider): void {
   const w = provider.version(1);
-  // The worker bundle contributes one component: the Cursor runtime. mount()
-  // builds and returns the implementation the daemon routes dispatched turns to.
-  w.runtime.register({ mount });
+  // The worker bundle contributes one component: the Cursor runtime. The
+  // definition carries the declared metadata (label + the options a session
+  // creator renders); mount() builds and returns the implementation the daemon
+  // routes dispatched turns to.
+  w.runtime.register({
+    label: 'Cursor',
+    options: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'text',
+        default: null,
+        choices: null,
+        placeholder: 'Cursor default',
+        description: 'Cursor model id for every turn \u2014 e.g. claude-4-5-sonnet, claude-opus-4-8, gpt-5, gpt-5-codex, gemini-3-pro, composer-2, grok-4-3. Leave blank to use Cursor\u2019s own default. Run `cursor-agent models` on the machine to list what your account can use.',
+        suggestions: [
+          'claude-4-5-sonnet',
+          'claude-4-5-opus',
+          'claude-opus-4-8',
+          'gpt-5',
+          'gpt-5-codex',
+          'gpt-5-mini',
+          'gemini-3-pro',
+          'gemini-3-flash',
+          'composer-2',
+          'grok-4-3',
+        ],
+      },
+    ],
+    mount,
+  });
 }
 
 // The Cursor runtime. mount() returns the implementation that drives Cursor's
@@ -298,8 +326,6 @@ export function register(provider: WorkerProvider): void {
 // carries no dispose.
 function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
   return {
-    label: 'Cursor',
-
     // Eagerly provision the Cursor CLI on this machine the moment it connects, in
     // the background — so a missing binary or a broken network is surfaced (and
     // fixed) up front rather than mid-turn. Shares ensureCursorBinary()'s
@@ -349,16 +375,16 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
     },
 
     async run(input: RuntimeRunInput): Promise<RuntimeRunResult> {
-      const sid = input.sessionId; // the durable session this turn streams under
-      input.emit({ type: 'turn_start', sessionId: sid, userPrompt: input.userPrompt, ts: Date.now() });
+      const sid = input.runtimeSessionId; // the durable session this turn streams under
+      input.emit({ type: 'turn_start', sessionId: sid, userPrompt: input.userPrompt, timestamp: Date.now() });
 
       // Resolve (provisioning on first use) the CLI binary.
       const bin = await ensureCursorBinary();
       if (!bin) {
         const message = `Cursor CLI is not available on this machine and auto-install failed${cursorInstallError ? ` (${cursorInstallError})` : ''} — install it with \`curl ${CURSOR_INSTALL_URL} -fsS | bash\``;
-        input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message, recoverable: false, ts: Date.now() });
+        input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message, recoverable: false, timestamp: Date.now() });
         input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
-        return { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || null, responseText: null, error: message };
+        return { stopReason: 'error', usage: ZERO_USAGE, runtimeSessionId: input.runtimeSessionId || null, responseText: null, error: message };
       }
 
       // Write the frontier MCP gateway (+ any user servers) to the slot's
@@ -382,16 +408,16 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
       // per-attempt below (NOT here) so the stale-resume retry can drop it. We
       // pass the prompt as a flag value, not on stdin.
       const baseArgs = ['-p', prompt, '--output-format', 'stream-json', '--force'];
-      if (input.model) { baseArgs.push('--model', input.model); }
+      if (input.options['model']) { baseArgs.push('--model', input.options['model']); }
       if (wroteMcp) { baseArgs.push('--approve-mcps'); }
-      const wantsResume = !!(input.resume && input.sessionId);
+      const wantsResume = !!(input.resume && input.runtimeSessionId);
 
       // Relay state: accumulate the final assistant text, track the provider
       // session id (printed in the system init event), and capture any terminal
       // error from the result event. Re-made per attempt (see runAttempt).
       const makeRelay = (): RelayState => ({
         responseText: '',
-        providerSessionId: input.sessionId || null,
+        runtimeSessionId: input.runtimeSessionId || null,
         error: null,
         stopReason: 'end_turn',
         textIdByCall: new Map(),
@@ -407,7 +433,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
       const runAttempt = async (
         useResume: boolean,
       ): Promise<{ relay: RelayState } | { result: RuntimeRunResult }> => {
-        const args = useResume ? [...baseArgs, '--resume', input.sessionId] : baseArgs;
+        const args = useResume ? [...baseArgs, '--resume', input.runtimeSessionId] : baseArgs;
         const relay = makeRelay();
 
         // spawn() can throw SYNCHRONOUSLY (EACCES/ENOEXEC/ETXTBSY) before the
@@ -430,9 +456,9 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
           });
         } catch (err: any) {
           const message = err?.message ? String(err.message) : String(err);
-          input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: failed to launch the CLI: ${message}`, recoverable: false, ts: Date.now() });
+          input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: failed to launch the CLI: ${message}`, recoverable: false, timestamp: Date.now() });
           input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
-          return { result: { stopReason: 'error', usage: ZERO_USAGE, providerSessionId: input.sessionId || null, responseText: null, error: `cursor: failed to launch the CLI: ${message}` } };
+          return { result: { stopReason: 'error', usage: ZERO_USAGE, runtimeSessionId: input.runtimeSessionId || null, responseText: null, error: `cursor: failed to launch the CLI: ${message}` } };
         }
 
         // Forward the dispatch's abort to the child so generation actually stops.
@@ -449,14 +475,14 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
           const cancelled = input.signal?.aborted || err?.name === 'AbortError';
           const message = err?.message ? String(err.message) : String(err);
           if (!cancelled) {
-            input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: ${message}`, recoverable: false, ts: Date.now() });
+            input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: ${message}`, recoverable: false, timestamp: Date.now() });
           }
           input.emit({ type: 'done', sessionId: sid, stopReason: cancelled ? 'cancelled' : 'error', usage: ZERO_USAGE });
           return {
             result: {
               stopReason: cancelled ? 'cancelled' : 'error',
               usage: ZERO_USAGE,
-              providerSessionId: relay.providerSessionId ?? null,
+              runtimeSessionId: relay.runtimeSessionId ?? null,
               responseText: relay.responseText || null,
               error: cancelled ? null : `cursor: ${message}`,
             },
@@ -469,7 +495,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
 
       // First attempt (with --resume when asked). If it failed with a terminal
       // stale/unknown-session error AND we were resuming, retry ONCE without
-      // --resume — a fresh native session — so a stale providerSessionId (a
+      // --resume — a fresh native session — so a stale runtimeSessionId (a
       // pruned/cross-machine/format-changed id) doesn't lose the whole turn. The
       // retry is SINGLE and bounded (no loop); its events stream under the same
       // durable session and its new session_id is captured as before.
@@ -481,7 +507,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
         outcome.relay.stopReason === 'error' &&
         isStaleResumeError(outcome.relay.error)
       ) {
-        console.error(`[cursor] --resume ${input.sessionId} failed as stale/unknown ("${outcome.relay.error}") — retrying once without --resume (fresh session)`);
+        console.error(`[cursor] --resume ${input.runtimeSessionId} failed as stale/unknown ("${outcome.relay.error}") — retrying once without --resume (fresh session)`);
         outcome = await runAttempt(false);
       }
       if ('result' in outcome) return outcome.result;
@@ -489,7 +515,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
 
       if (input.signal?.aborted) {
         input.emit({ type: 'done', sessionId: sid, stopReason: 'cancelled', usage: ZERO_USAGE });
-        return { stopReason: 'cancelled', usage: ZERO_USAGE, providerSessionId: relay.providerSessionId ?? null, responseText: relay.responseText || null, error: 'cancelled' };
+        return { stopReason: 'cancelled', usage: ZERO_USAGE, runtimeSessionId: relay.runtimeSessionId ?? null, responseText: relay.responseText || null, error: 'cancelled' };
       }
 
       input.emit({ type: 'usage', sessionId: sid, usage: ZERO_USAGE });
@@ -497,7 +523,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
       return {
         stopReason: relay.stopReason,
         usage: ZERO_USAGE,
-        providerSessionId: relay.providerSessionId ?? null,
+        runtimeSessionId: relay.runtimeSessionId ?? null,
         responseText: relay.responseText || null,
         error: relay.error || null,
       };
@@ -510,7 +536,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
     // No history: the Cursor CLI keeps its own session store, but its on-disk
     // format is not a documented/stable read surface (June 2026), so this runtime
     // does not expose the cold/history plane. Resume still works via
-    // providerSessionId (the live plane is fully relayed); only browsing prior
+    // runtimeSessionId (the live plane is fully relayed); only browsing prior
     // Cursor transcripts as Frontier history is unavailable. If Cursor documents a
     // session-store format or a `cursor-agent export <id>` command, implement
     // RuntimeHistory here against it.
@@ -521,7 +547,7 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
 
 interface RelayState {
   responseText: string;
-  providerSessionId: string | null;
+  runtimeSessionId: string | null;
   error: string | null;
   stopReason: TranscriptStopReason;
   // call_id → the transcript text id we assigned, so a tool's text groups stably.
@@ -601,7 +627,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
   const type: string = ev?.type || '';
   // Every event carries session_id; the system init event is where the durable id
   // first appears, but we keep the latest seen for safety.
-  if (typeof ev?.session_id === 'string' && ev.session_id) relay.providerSessionId = ev.session_id;
+  if (typeof ev?.session_id === 'string' && ev.session_id) relay.runtimeSessionId = ev.session_id;
 
   switch (type) {
     case 'system':
@@ -632,10 +658,10 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
         if (!text) continue;
         const id = `a-${relay.seq++}`;
         if (kind === 'thinking') {
-          input.emit({ type: 'thinking', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, ts: Date.now() });
+          input.emit({ type: 'thinking', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
         } else {
           relay.responseText = text; // last complete assistant text is the turn's answer
-          input.emit({ type: 'text', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, ts: Date.now() });
+          input.emit({ type: 'text', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
         }
       }
       // Some builds put the message text directly on a `content` string rather than
@@ -643,7 +669,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (!blocks.length && typeof content === 'string' && content) {
         const id = `a-${relay.seq++}`;
         relay.responseText = content;
-        input.emit({ type: 'text', sessionId, id, delta: content, partial: false, text: content, agentId: null, agentLabel: null, ts: Date.now() });
+        input.emit({ type: 'text', sessionId, id, delta: content, partial: false, text: content, agentId: null, agentLabel: null, timestamp: Date.now() });
       }
       return;
     }
@@ -660,11 +686,11 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (subtype === 'completed' || tc?.result !== undefined) {
         const result = tc?.result ?? tc?.output ?? '';
         const isError = !!(tc?.is_error || tc?.error);
-        input.emit({ type: 'tool_result', sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, agentId: null, agentLabel: null, ts: Date.now() });
+        input.emit({ type: 'tool_result', sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, agentId: null, agentLabel: null, timestamp: Date.now() });
       } else {
         const name: string = String(tc?.name || tc?.tool || ev?.name || 'tool');
         const args = tc?.args ?? tc?.arguments ?? tc?.input ?? {};
-        input.emit({ type: 'tool_call', sessionId, callId, name, input: args, partial: false, agentId: null, agentLabel: null, ts: Date.now() });
+        input.emit({ type: 'tool_call', sessionId, callId, name, input: args, partial: false, agentId: null, agentLabel: null, timestamp: Date.now() });
       }
       return;
     }
@@ -676,7 +702,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
         relay.stopReason = 'error';
         const msg = typeof ev?.result === 'string' && ev.result ? ev.result : (ev?.subtype || 'cursor run errored');
         relay.error = relay.error || String(msg);
-        input.emit({ type: 'error', sessionId, code: String(ev?.subtype || 'error'), message: String(msg), recoverable: false, ts: Date.now() });
+        input.emit({ type: 'error', sessionId, code: String(ev?.subtype || 'error'), message: String(msg), recoverable: false, timestamp: Date.now() });
       } else {
         relay.stopReason = mapResultSubtype(ev?.subtype);
         // The result text is the authoritative final answer when present.
@@ -744,7 +770,7 @@ async function wireMcp(input: RuntimeRunInput): Promise<boolean> {
   if (input.mcpEndpoint?.url) {
     servers.frontier = {
       url: input.mcpEndpoint.url,
-      ...(input.mcpEndpoint.auth ? { headers: input.mcpEndpoint.auth } : {}),
+      ...(Object.keys(input.mcpEndpoint.auth).length ? { headers: input.mcpEndpoint.auth } : {}),
     };
   }
 
