@@ -10,7 +10,7 @@
         "cursor"
       ],
       "workspaces": [],
-      "daemon": false
+      "daemons": []
     }
   }
 }
