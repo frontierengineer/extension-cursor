@@ -291,6 +291,7 @@ export function register(provider: WorkerProvider): void {
   // creator renders); mount() builds and returns the implementation the daemon
   // routes dispatched turns to.
   w.runtime.register({
+    id: 'cursor',
     label: 'Cursor',
     options: [
       {
@@ -376,14 +377,14 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
 
     async run(input: RuntimeRunInput): Promise<RuntimeRunResult> {
       const sid = input.runtimeSessionId; // the durable session this turn streams under
-      input.emit({ type: 'turn_start', sessionId: sid, userPrompt: input.userPrompt, timestamp: Date.now() });
+      input.emit({ type: 'turn_start', runtimeSessionId: sid, executionId: input.executionId, userPrompt: input.userPrompt, timestamp: Date.now() });
 
       // Resolve (provisioning on first use) the CLI binary.
       const bin = await ensureCursorBinary();
       if (!bin) {
         const message = `Cursor CLI is not available on this machine and auto-install failed${cursorInstallError ? ` (${cursorInstallError})` : ''} — install it with \`curl ${CURSOR_INSTALL_URL} -fsS | bash\``;
-        input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message, recoverable: false, timestamp: Date.now() });
-        input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
+        input.emit({ type: 'error', runtimeSessionId: sid, code: 'runtime_error', message, recoverable: false, timestamp: Date.now() });
+        input.emit({ type: 'done', runtimeSessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
         return { stopReason: 'error', usage: ZERO_USAGE, runtimeSessionId: input.runtimeSessionId || null, responseText: null, error: message };
       }
 
@@ -456,8 +457,8 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
           });
         } catch (err: any) {
           const message = err?.message ? String(err.message) : String(err);
-          input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: failed to launch the CLI: ${message}`, recoverable: false, timestamp: Date.now() });
-          input.emit({ type: 'done', sessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
+          input.emit({ type: 'error', runtimeSessionId: sid, code: 'runtime_error', message: `cursor: failed to launch the CLI: ${message}`, recoverable: false, timestamp: Date.now() });
+          input.emit({ type: 'done', runtimeSessionId: sid, stopReason: 'error', usage: ZERO_USAGE });
           return { result: { stopReason: 'error', usage: ZERO_USAGE, runtimeSessionId: input.runtimeSessionId || null, responseText: null, error: `cursor: failed to launch the CLI: ${message}` } };
         }
 
@@ -475,9 +476,9 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
           const cancelled = input.signal?.aborted || err?.name === 'AbortError';
           const message = err?.message ? String(err.message) : String(err);
           if (!cancelled) {
-            input.emit({ type: 'error', sessionId: sid, code: 'runtime_error', message: `cursor: ${message}`, recoverable: false, timestamp: Date.now() });
+            input.emit({ type: 'error', runtimeSessionId: sid, code: 'runtime_error', message: `cursor: ${message}`, recoverable: false, timestamp: Date.now() });
           }
-          input.emit({ type: 'done', sessionId: sid, stopReason: cancelled ? 'cancelled' : 'error', usage: ZERO_USAGE });
+          input.emit({ type: 'done', runtimeSessionId: sid, stopReason: cancelled ? 'cancelled' : 'error', usage: ZERO_USAGE });
           return {
             result: {
               stopReason: cancelled ? 'cancelled' : 'error',
@@ -514,12 +515,12 @@ function mount(context: WorkerRuntimeContext): WorkerRuntimeImplementation {
       const relay = outcome.relay;
 
       if (input.signal?.aborted) {
-        input.emit({ type: 'done', sessionId: sid, stopReason: 'cancelled', usage: ZERO_USAGE });
+        input.emit({ type: 'done', runtimeSessionId: sid, stopReason: 'cancelled', usage: ZERO_USAGE });
         return { stopReason: 'cancelled', usage: ZERO_USAGE, runtimeSessionId: relay.runtimeSessionId ?? null, responseText: relay.responseText || null, error: 'cancelled' };
       }
 
-      input.emit({ type: 'usage', sessionId: sid, usage: ZERO_USAGE });
-      input.emit({ type: 'done', sessionId: sid, stopReason: relay.stopReason, usage: ZERO_USAGE });
+      input.emit({ type: 'usage', runtimeSessionId: sid, usage: ZERO_USAGE });
+      input.emit({ type: 'done', runtimeSessionId: sid, stopReason: relay.stopReason, usage: ZERO_USAGE });
       return {
         stopReason: relay.stopReason,
         usage: ZERO_USAGE,
@@ -658,10 +659,10 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
         if (!text) continue;
         const id = `a-${relay.seq++}`;
         if (kind === 'thinking') {
-          input.emit({ type: 'thinking', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
+          input.emit({ type: 'thinking', runtimeSessionId: sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
         } else {
           relay.responseText = text; // last complete assistant text is the turn's answer
-          input.emit({ type: 'text', sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
+          input.emit({ type: 'text', runtimeSessionId: sessionId, id, delta: text, partial: false, text, agentId: null, agentLabel: null, timestamp: Date.now() });
         }
       }
       // Some builds put the message text directly on a `content` string rather than
@@ -669,7 +670,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (!blocks.length && typeof content === 'string' && content) {
         const id = `a-${relay.seq++}`;
         relay.responseText = content;
-        input.emit({ type: 'text', sessionId, id, delta: content, partial: false, text: content, agentId: null, agentLabel: null, timestamp: Date.now() });
+        input.emit({ type: 'text', runtimeSessionId: sessionId, id, delta: content, partial: false, text: content, agentId: null, agentLabel: null, timestamp: Date.now() });
       }
       return;
     }
@@ -686,11 +687,11 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
       if (subtype === 'completed' || tc?.result !== undefined) {
         const result = tc?.result ?? tc?.output ?? '';
         const isError = !!(tc?.is_error || tc?.error);
-        input.emit({ type: 'tool_result', sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, agentId: null, agentLabel: null, timestamp: Date.now() });
+        input.emit({ type: 'tool_result', runtimeSessionId: sessionId, callId, output: isError ? (tc?.error ?? result) : result, isError, durationMs: Number(tc?.duration_ms) || 0, agentId: null, agentLabel: null, timestamp: Date.now() });
       } else {
         const name: string = String(tc?.name || tc?.tool || ev?.name || 'tool');
         const args = tc?.args ?? tc?.arguments ?? tc?.input ?? {};
-        input.emit({ type: 'tool_call', sessionId, callId, name, input: args, partial: false, agentId: null, agentLabel: null, timestamp: Date.now() });
+        input.emit({ type: 'tool_call', runtimeSessionId: sessionId, callId, name, input: args, partial: false, agentId: null, agentLabel: null, timestamp: Date.now() });
       }
       return;
     }
@@ -702,7 +703,7 @@ function handleEvent(ev: any, sessionId: string, input: RuntimeRunInput, relay: 
         relay.stopReason = 'error';
         const msg = typeof ev?.result === 'string' && ev.result ? ev.result : (ev?.subtype || 'cursor run errored');
         relay.error = relay.error || String(msg);
-        input.emit({ type: 'error', sessionId, code: String(ev?.subtype || 'error'), message: String(msg), recoverable: false, timestamp: Date.now() });
+        input.emit({ type: 'error', runtimeSessionId: sessionId, code: String(ev?.subtype || 'error'), message: String(msg), recoverable: false, timestamp: Date.now() });
       } else {
         relay.stopReason = mapResultSubtype(ev?.subtype);
         // The result text is the authoritative final answer when present.

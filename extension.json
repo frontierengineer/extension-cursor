@@ -6,9 +6,11 @@
     "surface": null,
     "host": null,
     "worker": {
-      "runtime": true,
+      "runtimes": [
+        "cursor"
+      ],
       "workspaces": [],
-      "components": false
+      "daemon": false
     }
   }
 }
