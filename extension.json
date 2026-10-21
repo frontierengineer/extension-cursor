@@ -1,0 +1,14 @@
+{
+  "displayName": "Cursor",
+  "defaultColor": "#000000",
+  "description": "Worker runtime that drives Cursor's headless CLI agent (`cursor-agent -p`) on a slot and relays its NDJSON event stream as transcript events, so any model Cursor exposes (Anthropic, OpenAI, Gemini, xAI, Composer) runs in Frontier's UI. Operates in place on the slot's existing checkout.",
+  "realms": {
+    "worker": {
+      "runtimes": [
+        "cursor"
+      ],
+      "workspaces": [],
+      "daemons": []
+    }
+  }
+}
